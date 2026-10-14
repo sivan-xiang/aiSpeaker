@@ -148,7 +148,7 @@ function chunkText(text) {
   return out;
 }
 
-export async function speak(text, voice, setStatus, title) {
+export async function speak(text, voice, setStatus, title, speed) {
   stopped = false;
   paused = false;
   queue = chunkText(text);
@@ -160,7 +160,7 @@ export async function speak(text, voice, setStatus, title) {
     if (stopped) break;
     await waitIfPaused();
     if (stopped) break;
-    const audio = await tts.generate(queue[i], { voice: voice || "af_heart" });
+    const audio = await tts.generate(queue[i], { voice: voice || "af_heart", speed: speed || 1.0 });
     if (stopped) break;
     await waitIfPaused();
     if (stopped) break;
@@ -173,8 +173,4 @@ export async function speak(text, voice, setStatus, title) {
   }
 }
 
-// 暴露给原生媒体通知 / 耳机按键：window.__tts*()
-window.__ttsStop = stopAll;
-window.__ttsPause = pauseTTS;
-window.__ttsResume = resumeTTS;
-window.__ttsToggle = togglePause;
+// 注意：window.__tts* 的注册放在 app.js（按当前引擎动态分发），本模块不绑定全局。

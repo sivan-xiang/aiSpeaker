@@ -1,4 +1,5 @@
-import { initTTS, listVoices, speak, stopAll, togglePause, isPaused } from "./tts.js";
+import * as enTts from "./tts.js"; // 英文引擎（Kokoro，英文书用）
+import * as zhTts from "./tts_zh.js"; // 中文引擎（诗词 tab 用）
 import { DEFAULT_POEMS, POETRY_REMOTE_URL, normalizeRemote } from "./data/poems.js";
 
 const $ = (sel) => document.querySelector(sel);
@@ -8,7 +9,7 @@ const setStatus = (s) => { statusEl.textContent = s; };
 
 let currentText = "";
 let currentTitle = "";
-let voicesReady = false;
+let currentEngine = enTts; // 当前朗读引擎：诗词=zhTts，英文书=enTts
 
 // ---------- Tab switching ----------
 document.querySelectorAll(".tab-btn").forEach((btn) => {
@@ -38,60 +39,68 @@ function resetPauseBtn() {
   if (pb) pb.textContent = "⏸ 暂停";
 }
 
-// ---------- Voices ----------
-// 页面加载即用音色列表填充下拉框（不依赖模型下载），模型加载后再用权威列表刷新。
+// ---------- Engines / Voices ----------
+// 切换朗读引擎并刷新音色下拉框（诗词=中文引擎，英文书=英文引擎）
+function setEngine(engine, defaultVoice) {
+  if (currentEngine === engine && voiceSel.value) return;
+  currentEngine = engine;
+  populateVoices();
+  if (defaultVoice) voiceSel.value = defaultVoice;
+}
+
+// 页面加载即用音色列表填充下拉框（不依赖模型下载）
 function populateVoices() {
-  const voices = listVoices();
+  const voices = currentEngine.listVoices();
   if (!voices || !voices.length) return;
   const prev = voiceSel.value;
   voiceSel.innerHTML = "";
   voices.forEach((v) => {
     const o = document.createElement("option");
     o.value = v.id || v.name || v;
-    const label = v.name || v.id || v;
-    const gender = v.gender
-      ? " · " + (v.gender === "female" ? "女声" : v.gender === "male" ? "男声" : v.gender)
-      : "";
-    o.textContent = label + gender;
+    o.textContent = v.name || v.id || v;
     voiceSel.appendChild(o);
   });
-  // 尽量保留用户已选音色；首次默认 af_heart（美式女声）
+  // 尽量保留用户已选音色；否则用当前引擎的默认音色
   if (prev && [...voiceSel.options].some((o) => o.value === prev)) {
     voiceSel.value = prev;
-  } else if (!voiceSel.value) {
-    voiceSel.value = "af_heart";
+  } else {
+    voiceSel.value = currentEngine === zhTts ? "zf_xiaoxiao" : "af_heart";
   }
 }
 
 async function ensureVoices() {
-  if (voicesReady) return;
-  await initTTS(setStatus);
+  await currentEngine.initTTS(setStatus);
   populateVoices(); // 模型加载后用权威音色列表刷新下拉框
-  voicesReady = true;
 }
 
-// 加载时立即填充音色（无需等待模型）
+// 加载时立即填充音色（默认英文引擎）
 populateVoices();
 
-// 启动即预下载模型，省去首次朗读的等待；模型就绪后刷新音色列表
-initTTS(setStatus)
+// 启动即预下载模型（Kokoro，含中英文音色），省去首次朗读的等待
+enTts.initTTS(setStatus)
   .then(() => { populateVoices(); setStatus("模型就绪，可朗读"); })
   .catch((e) => setStatus("模型加载失败：" + (e && e.message ? e.message : e)));
+
+// 原生媒体通知 / 耳机按键 -> 转发到当前激活的引擎
+window.__ttsStop = () => currentEngine.stopAll();
+window.__ttsPause = () => currentEngine.pauseTTS();
+window.__ttsResume = () => currentEngine.resumeTTS();
+window.__ttsToggle = () => currentEngine.togglePause();
 
 // ---------- TTS controls ----------
 $("#readerSpeak").addEventListener("click", async () => {
   if (!currentText) return;
   await ensureVoices();
   resetPauseBtn();
-  speak(currentText, voiceSel.value, setStatus, currentTitle);
+  currentEngine.speak(currentText, voiceSel.value, setStatus, currentTitle);
 });
-$("#stopBtn").addEventListener("click", () => { stopAll(); setStatus("已停止"); resetPauseBtn(); });
+$("#stopBtn").addEventListener("click", () => { currentEngine.stopAll(); setStatus("已停止"); resetPauseBtn(); });
 
 const pauseBtn = $("#readerPause");
 if (pauseBtn) {
   pauseBtn.addEventListener("click", () => {
-    togglePause();
-    pauseBtn.textContent = isPaused() ? "▶ 继续" : "⏸ 暂停";
+    currentEngine.togglePause();
+    pauseBtn.textContent = currentEngine.isPaused() ? "▶ 继续" : "⏸ 暂停";
   });
 }
 
@@ -120,7 +129,7 @@ function renderPoems(list) {
     meta: p.author || "",
     _content: p.content,
   }));
-  renderList("poetry-list", items, (it) => openReader(it.title, it.meta, it._content));
+  renderList("poetry-list", items, (it) => { setEngine(zhTts, "zf_xiaoxiao"); openReader(it.title, it.meta, it._content); });
 }
 renderPoems(DEFAULT_POEMS);
 
@@ -157,6 +166,7 @@ $("#loadGutenberg").addEventListener("click", async () => {
       })
       .filter(Boolean);
     renderList("gutenberg-list", items, async (it) => {
+      setEngine(enTts, "af_heart");
       setStatus("正在下载正文…");
       const text = await (await fetch(it._txt)).text();
       openReader(it.title, it.meta, text);
@@ -199,6 +209,7 @@ $("#loadStandard").addEventListener("click", async () => {
 const SE_SKIP = /(titlepage|halftitle|halftitlepage|cover|colophon|imprint|uncopyright|copyright|toc|dedication|endnotes|loi|loa|contents|craftsmanship|epigraph)/i;
 
 async function openStandardBook(it) {
+  setEngine(enTts, "af_heart");
   const base = it._href.replace(/\/+$/, "");
   const textUrl = base.endsWith("/text") ? base : base + "/text";
   currentTitle = it.title;

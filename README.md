@@ -7,12 +7,14 @@
 ```
 Android (WebView 薄壳)
    └── assets/index.html  (网页应用)
-         ├── js/tts.js      → kokoro-js（onnx-community/Kokoro-82M-v1.0-ONNX，wasm 本地推理）
-         ├── js/app.js      → 标签页 / 书架 / 阅读器 / TTS 控制
+         ├── js/tts.js      → 英文引擎：kokoro-js（onnx-community/Kokoro-82M-v1.0-ONNX，wasm 本地推理）
+         ├── js/tts_zh.js   → 中文引擎（诗词 tab 专用）：复用 Kokoro 中文音色 zf_*/zm_*
+         ├── js/app.js      → 标签页 / 书架 / 阅读器 / 双引擎分发
          ├── js/data/poems.js → 诗词数据（内置示例 + 远程 URL 配置）
          └── css/style.css
 ```
 
+- **双引擎分发**：诗词 tab 走中文引擎（Kokoro 的中文音色），英文公版书（Gutenberg / Standard Ebooks）走英文引擎；两者共用同一份 Kokoro 模型，无需额外下载。要换成独立中文引擎（SpeechT5 / sherpa-onnx 等），只改 `js/tts_zh.js` 一个文件即可，`app.js` 无需改动。
 - **推理在哪**：模型在 WebView 的浏览器引擎里跑，属于「端侧本地」。首次启动会从 CDN 拉取 `kokoro-js` 库与模型权重（约几十 MB），之后由 WebView 缓存，断网也能用。
 - **音频播放**：`tts.generate()` 返回 `Float32Array`（24kHz），经 Web Audio `AudioContext` 播放。
 
@@ -55,7 +57,7 @@ Android (WebView 薄壳)
   - 默认已内置「诗词游乐场」lite 数据集（75 首，`js/data/poems_classic_0.js`）。
   - 把 `POETRY_REMOTE_URL` 改成你的 lite JSON 地址（返回 `[{title, author, content}]`，或兼容 `{title, author, paragraphs:[...]}` 的 chinese-poetry 格式），然后点「从网络加载诗词」即可远程覆盖。
   - 字段已校准：`paragraphs[]` → 正文；`dynasty + author` → 作者显示。
-- **音色**：下拉框在**页面加载时即填充**（内置 Kokoro-82M 常见音色，优先用模型静态列表）；模型首次加载完成后会用权威列表刷新，并尽量保留你已选的音色。默认 `af_heart`（美式女声）。注：Kokoro-82M 以英文为主，中文诗词朗读效果有限（见已知限制）。
+- **音色**：下拉框在**页面加载时即填充**；模型首次加载完成后会用权威列表刷新，并尽量保留你已选的音色。诗词 tab 自动切到中文音色（`zf_xiaoxiao` 等），英文书 tab 用英文音色（默认 `af_heart`）。
 - **推理后端/精度**（`js/tts.js` 的 `initTTS`）：
   - `device: "wasm"` + `dtype: "q8"`：通用、稳定、体积小（当前默认）。
   - 若设备浏览器支持 WebGPU，可改 `device: "webgpu"` + `dtype: "fp32"` 提升音质与速度。
@@ -65,7 +67,7 @@ Android (WebView 薄壳)
 
 - **后台播放依赖前台服务**：切后台后朗读靠前台服务保活，部分厂商 ROM 的激进后台清理仍可能中断；若被回收，重新打开 App 即可。
 - **Standard Ebooks** 走「OPDS → `/text` 目录 → 逐章抓取 XHTML 抽取正文」，章节较多时首次加载会发较多请求、略慢；已过滤扉页/版权/目录等无关章节。
-- **中文朗读受限**：Kokoro-82M 以英文音色为主，**中文诗词的朗读效果有限**（会按英文音素近似发音）。英文公版书是主要适用场景；中文诗词建议作为体验项，或后续替换为中文 TTS 引擎（如本地中文 TTS ONNX 模型）。
+- **中文朗读已可用**：诗词 tab 已接入 Kokoro 的中文音色（`zf_xiaoxiao / zf_xiaobei / zm_yunjian` 等），可直接用中文朗读，不再是用英文音素近似。Kokoro 中文音质评级约 C~D 级，清晰可懂但腔调偏「外国人说中文」，作为体验项足够；若追求更地道的中文，可把 `js/tts_zh.js` 换成 SpeechT5 / sherpa-onnx 等独立中文引擎（接口已隔离，`app.js` 无需改动）。
 - **WebGPU** 在部分 Android WebView 上需安全上下文；当前默认 wasm 以保兼容。
 - 模型权重与 JS 库首次需联网下载（一次性，已缓存）。
 - 本仓库未包含 Gradle wrapper 二进制（`gradle-wrapper.jar`）；Android Studio 打开时会自动处理。
