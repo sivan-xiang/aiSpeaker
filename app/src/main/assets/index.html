@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>朗读壳 ReadAloud</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <header>
+    <h1>朗读壳</h1>
+    <nav>
+      <button class="tab-btn active" data-tab="poetry">诗词</button>
+      <button class="tab-btn" data-tab="gutenberg">英文公版书</button>
+      <button class="tab-btn" data-tab="standard">Standard Ebooks</button>
+    </nav>
+    <div id="tts-bar">
+      <label>音色
+        <select id="voice"></select>
+      </label>
+      <button id="stopBtn">停止</button>
+      <span id="status">未加载模型</span>
+    </div>
+  </header>
+
+  <main>
+    <section id="poetry" class="tab active">
+      <div class="toolbar">
+        <button id="loadRemotePoetry">从网络加载诗词(JSON)</button>
+        <span class="hint">默认内置示例诗词；可在 js/data/poems.js 配置远程地址</span>
+      </div>
+      <div id="poetry-list" class="list"></div>
+    </section>
+
+    <section id="gutenberg" class="tab">
+      <div class="toolbar">
+        <button id="loadGutenberg">加载书库 (Gutendex)</button>
+        <span class="hint">数据来自 Project Gutenberg 镜像 Gutendex</span>
+      </div>
+      <div id="gutenberg-list" class="list"></div>
+    </section>
+
+    <section id="standard" class="tab">
+      <div class="toolbar">
+        <button id="loadStandard">加载 Standard Ebooks</button>
+        <span class="hint">OPDS 目录，点击条目拉取正文</span>
+      </div>
+      <div id="standard-list" class="list"></div>
+    </section>
+
+    <div id="reader" class="reader hidden">
+      <div class="reader-head">
+        <button id="readerBack">← 返回</button>
+        <button id="readerSpeak">▶ 朗读</button>
+      </div>
+      <h2 id="readerTitle"></h2>
+      <div id="readerBody" class="reader-body"></div>
+    </div>
+  </main>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

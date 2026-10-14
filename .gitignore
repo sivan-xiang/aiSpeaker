@@ -1,0 +1,14 @@
+# Built artifacts
+*.iml
+.gradle/
+/build/
+/*/build/
+/local.properties
+/.idea/
+*.apk
+*.aar
+captures/
+
+# OS / editor
+.DS_Store
+Thumbs.db
