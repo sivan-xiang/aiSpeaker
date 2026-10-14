@@ -4,6 +4,7 @@
 import { KokoroTTS } from "https://esm.sh/kokoro-js";
 
 let tts = null;
+let ttsPromise = null; // 去重并发加载，保证多次调用只下载一次
 let audioCtx = null;
 let playing = [];
 let stopped = false;
@@ -34,13 +35,15 @@ const FALLBACK_VOICES = [
 
 export async function initTTS(setStatus) {
   if (tts) return tts;
+  if (ttsPromise) return ttsPromise; // 已有进行中的加载，复用同一个
   setStatus?.("正在加载 Kokoro 模型（首次约几十 MB，之后走缓存）…");
-  tts = await KokoroTTS.from_pretrained("onnx-community/Kokoro-82M-v1.0-ONNX", {
+  ttsPromise = KokoroTTS.from_pretrained("onnx-community/Kokoro-82M-v1.0-ONNX", {
     dtype: "q8", // q8: 体积小、wasm 上速度可接受；追求音质可改 fp32（配合 webgpu）
     device: "wasm", // WebView 内最稳；若设备支持 WebGPU 可改 "webgpu"
-  });
-  setStatus?.("模型就绪");
-  return tts;
+  })
+    .then((m) => { tts = m; return m; })
+    .catch((e) => { ttsPromise = null; throw e; }); // 失败清零，允许重试
+  return ttsPromise;
 }
 
 export function listVoices() {

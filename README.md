@@ -47,7 +47,7 @@ Android (WebView 薄壳)
 2. 等待 Gradle 同步（首次会下载 Gradle 8.9 与依赖）。
    - 若 `./gradlew` 提示缺少 wrapper，可在已装 Gradle 的环境执行 `gradle wrapper`，或直接让 Android Studio 在打开时重新生成 wrapper。
 3. 连接设备或启动模拟器，`Run 'app'`。
-4. 进入 App 后点任意「朗读」按钮：首次会自动下载 Kokoro 模型（状态栏有提示），完成后开始朗读。
+4. 进入 App 后**自动开始下载** Kokoro 模型（状态栏实时提示进度），无需等点「朗读」；首次约几十 MB，之后走 WebView 缓存、可离线。模型就绪后即可朗读。
 
 ## 自定义
 

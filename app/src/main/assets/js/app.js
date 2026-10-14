@@ -73,6 +73,11 @@ async function ensureVoices() {
 // 加载时立即填充音色（无需等待模型）
 populateVoices();
 
+// 启动即预下载模型，省去首次朗读的等待；模型就绪后刷新音色列表
+initTTS(setStatus)
+  .then(() => { populateVoices(); setStatus("模型就绪，可朗读"); })
+  .catch((e) => setStatus("模型加载失败：" + (e && e.message ? e.message : e)));
+
 // ---------- TTS controls ----------
 $("#readerSpeak").addEventListener("click", async () => {
   if (!currentText) return;
