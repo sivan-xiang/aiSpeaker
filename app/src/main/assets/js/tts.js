@@ -7,6 +7,9 @@ let tts = null;
 let audioCtx = null;
 let playing = [];
 let stopped = false;
+let paused = false;
+let queue = [];
+let resumeWaiters = [];
 
 export async function initTTS(setStatus) {
   if (tts) return tts;
@@ -28,7 +31,7 @@ function ensureCtx() {
     const AC = window.AudioContext || window.webkitAudioContext;
     audioCtx = new AC();
   }
-  if (audioCtx.state === "suspended") audioCtx.resume();
+  if (audioCtx.state === "suspended" && !paused) audioCtx.resume();
   return audioCtx;
 }
 
@@ -45,10 +48,52 @@ function playBuffer(audio) {
   playing.push(src);
 }
 
+// --- Native bridge (no-op when not inside the app WebView) ---
+function notifyNative(method, arg) {
+  try {
+    const b = window.AndroidBridge;
+    if (b && typeof b[method] === "function") b[method](arg || "");
+  } catch (e) { /* ignore */ }
+}
+
 export function stopAll() {
   stopped = true;
+  paused = false;
+  queue = [];
   playing.forEach((s) => { try { s.stop(); } catch (e) {} });
   playing = [];
+  if (audioCtx && audioCtx.state === "suspended") audioCtx.resume();
+  notifyNative("onTtsStop");
+}
+
+export function pauseTTS() {
+  if (paused || stopped) return;
+  paused = true;
+  if (audioCtx) audioCtx.suspend(); // 暂停当前正在播放的 buffer
+  notifyNative("onTtsPause");
+}
+
+export function resumeTTS() {
+  if (!paused) return;
+  paused = false;
+  if (audioCtx) audioCtx.resume();
+  const ws = resumeWaiters;
+  resumeWaiters = [];
+  ws.forEach((r) => r());
+  notifyNative("onTtsResume");
+}
+
+export function togglePause() {
+  if (paused) resumeTTS(); else pauseTTS();
+}
+
+export function isPaused() {
+  return paused;
+}
+
+function waitIfPaused() {
+  if (!paused) return Promise.resolve();
+  return new Promise((res) => resumeWaiters.push(res));
 }
 
 // Split long text into <=200-char sentence chunks so generation stays stable.
@@ -70,17 +115,33 @@ function chunkText(text) {
   return out;
 }
 
-export async function speak(text, voice, setStatus) {
+export async function speak(text, voice, setStatus, title) {
   stopped = false;
+  paused = false;
+  queue = chunkText(text);
+  if (!queue.length) { setStatus?.("没有可朗读的文本"); return; }
   await initTTS(setStatus);
-  const chunks = chunkText(text);
-  if (!chunks.length) { setStatus?.("没有可朗读的文本"); return; }
-  for (const c of chunks) {
+  // 通知原生层：开始前台播放 + 媒体通知
+  notifyNative("onTtsStart", title || "");
+  for (let i = 0; i < queue.length; i++) {
     if (stopped) break;
-    const audio = await tts.generate(c, { voice: voice || "af_heart" });
+    await waitIfPaused();
+    if (stopped) break;
+    const audio = await tts.generate(queue[i], { voice: voice || "af_heart" });
+    if (stopped) break;
+    await waitIfPaused();
     if (stopped) break;
     playBuffer(audio);
     setStatus?.("朗读中…");
   }
-  if (!stopped) setStatus?.("完成");
+  if (!stopped) {
+    setStatus?.("完成");
+    notifyNative("onTtsStop"); // 自然结束，收起通知
+  }
 }
+
+// 暴露给原生媒体通知 / 耳机按键：window.__tts*()
+window.__ttsStop = stopAll;
+window.__ttsPause = pauseTTS;
+window.__ttsResume = resumeTTS;
+window.__ttsToggle = togglePause;

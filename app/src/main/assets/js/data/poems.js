@@ -1,22 +1,35 @@
 // 诗词数据
 // ---------------------------------------------------------------------------
-// 1) 内置示例：开箱即用，无需联网。
-// 2) 远程接入：把下面 POETRY_REMOTE_URL 改成你的「诗词游乐场」lite JSON 地址，
-//    或任意返回 [{title, author, content}] 的接口；点击「从网络加载诗词」即可拉取。
-//    也兼容 chinese-poetry 格式 {title, author, paragraphs:[...]}（见 app.js 归一化）。
+// 默认数据源：内置「诗词游乐场」lite 数据集（poems_classic_0.json，小学必背 75 首），离线可用。
+// 字段已校准：paragraphs[] -> 正文；dynasty + author -> 作者显示。
+// 远程覆盖：把 POETRY_REMOTE_URL 改成你的 lite 数据集地址（返回 [{title,author,content}]
+//   或兼容 paragraphs[] 的 chinese-poetry / 诗词游乐场格式），点「从网络加载诗词」即可替换内置数据。
+//   示例（你的 CloudBase 部署，路径需按实际确认）：
+//   https://tools-h5-d1gfo9r198d4d8b04-1313809642.tcloudbaseapp.com/poetry/data/poems_classic_0.json
+import { BUNDLED_POEMS } from "./poems_classic_0.js";
+
 export const POETRY_REMOTE_URL = "";
 
-export const SAMPLE_POEMS = [
-  { title: "静夜思", author: "李白", content: "床前明月光，疑是地上霜。举头望明月，低头思故乡。" },
-  { title: "春晓", author: "孟浩然", content: "春眠不觉晓，处处闻啼鸟。夜来风雨声，花落知多少。" },
-  { title: "登鹳雀楼", author: "王之涣", content: "白日依山尽，黄河入海流。欲穷千里目，更上一层楼。" },
-  { title: "相思", author: "王维", content: "红豆生南国，春来发几枝。愿君多采撷，此物最相思。" },
-  { title: "江雪", author: "柳宗元", content: "千山鸟飞绝，万径人踪灭。孤舟蓑笠翁，独钓寒江雪。" },
-  { title: "悯农", author: "李绅", content: "锄禾日当午，汗滴禾下土。谁知盘中餐，粒粒皆辛苦。" },
-  { title: "鹿柴", author: "王维", content: "空山不见人，但闻人语响。返景入深林，复照青苔上。" },
-  { title: "早春呈水部张十八员外", author: "韩愈", content: "天街小雨润如酥，草色遥看近却无。最是一年春好处，绝胜烟柳满皇都。" },
-  { title: "水调歌头", author: "苏轼", content: "明月几时有？把酒问青天。不知天上宫阙，今夕是何年。我欲乘风归去，又恐琼楼玉宇，高处不胜寒。起舞弄清影，何似在人间。" },
-  { title: "念奴娇·赤壁怀古", author: "苏轼", content: "大江东去，浪淘尽，千古风流人物。故垒西边，人道是，三国周郎赤壁。乱石穿空，惊涛拍岸，卷起千堆雪。江山如画，一时多少豪杰。" },
-  { title: "声声慢", author: "李清照", content: "寻寻觅觅，冷冷清清，凄凄惨惨戚戚。乍暖还寒时候，最难将息。三杯两盏淡酒，怎敌他、晚来风急？雁过也，正伤心，却是旧时相识。" },
-  { title: "虞美人", author: "李煜", content: "春花秋月何时了？往事知多少。小楼昨夜又东风，故国不堪回首月明中。雕栏玉砌应犹在，只是朱颜改。问君能有几多愁？恰似一江春水向东流。" },
-];
+// 校准「诗词游乐场」lite 数据集字段
+function normalizeClassic(list) {
+  return (list || []).map((p) => ({
+    title: p.title || "无题",
+    author: [p.dynasty, p.author].filter(Boolean).join(" · "),
+    content: Array.isArray(p.paragraphs)
+      ? p.paragraphs.join("\n")
+      : (p.content_text || p.content || ""),
+  }));
+}
+
+// 兼容远程格式的归一化（[{title,author,content}] 或 {paragraphs:[...]} 或 chinese-poetry）
+export function normalizeRemote(data) {
+  const arr = Array.isArray(data) ? data : data.poems || [];
+  return arr.map((p) => {
+    if (p.content) return { title: p.title, author: p.author || "", content: p.content };
+    if (Array.isArray(p.paragraphs))
+      return { title: p.title, author: [p.dynasty, p.author].filter(Boolean).join(" · "), content: p.paragraphs.join("\n") };
+    return { title: p.title || "无题", author: p.author || "", content: String(p) };
+  });
+}
+
+export const DEFAULT_POEMS = normalizeClassic(BUNDLED_POEMS);

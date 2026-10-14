@@ -1,5 +1,5 @@
-import { initTTS, listVoices, speak, stopAll } from "./tts.js";
-import { SAMPLE_POEMS, POETRY_REMOTE_URL } from "./data/poems.js";
+import { initTTS, listVoices, speak, stopAll, togglePause, isPaused } from "./tts.js";
+import { DEFAULT_POEMS, POETRY_REMOTE_URL, normalizeRemote } from "./data/poems.js";
 
 const $ = (sel) => document.querySelector(sel);
 const statusEl = $("#status");
@@ -7,6 +7,7 @@ const voiceSel = $("#voice");
 const setStatus = (s) => { statusEl.textContent = s; };
 
 let currentText = "";
+let currentTitle = "";
 let voicesReady = false;
 
 // ---------- Tab switching ----------
@@ -22,13 +23,20 @@ document.querySelectorAll(".tab-btn").forEach((btn) => {
 // ---------- Reader ----------
 function openReader(title, meta, text) {
   currentText = text;
+  currentTitle = title + (meta ? ` · ${meta}` : "");
   $("#readerTitle").textContent = title + (meta ? ` · ${meta}` : "");
   const body = $("#readerBody");
   body.textContent = text; // textContent avoids HTML injection
   $("#reader").classList.remove("hidden");
+  resetPauseBtn();
   window.scrollTo(0, 0);
 }
 $("#readerBack").addEventListener("click", () => $("#reader").classList.add("hidden"));
+
+function resetPauseBtn() {
+  const pb = $("#readerPause");
+  if (pb) pb.textContent = "⏸ 暂停";
+}
 
 // ---------- Voices ----------
 async function ensureVoices() {
@@ -57,9 +65,18 @@ async function ensureVoices() {
 $("#readerSpeak").addEventListener("click", async () => {
   if (!currentText) return;
   await ensureVoices();
-  speak(currentText, voiceSel.value, setStatus);
+  resetPauseBtn();
+  speak(currentText, voiceSel.value, setStatus, currentTitle);
 });
-$("#stopBtn").addEventListener("click", () => { stopAll(); setStatus("已停止"); });
+$("#stopBtn").addEventListener("click", () => { stopAll(); setStatus("已停止"); resetPauseBtn(); });
+
+const pauseBtn = $("#readerPause");
+if (pauseBtn) {
+  pauseBtn.addEventListener("click", () => {
+    togglePause();
+    pauseBtn.textContent = isPaused() ? "▶ 继续" : "⏸ 暂停";
+  });
+}
 
 // ---------- Generic list rendering ----------
 function renderList(containerId, items, onPick) {
@@ -79,7 +96,7 @@ function escapeHtml(s) {
   return (s || "").replace(/[&<>"]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[m]));
 }
 
-// ---------- Poetry ----------
+// ---------- Poetry (内置「诗词游乐场」lite 数据集，离线可用) ----------
 function renderPoems(list) {
   const items = list.map((p) => ({
     title: p.title,
@@ -88,17 +105,7 @@ function renderPoems(list) {
   }));
   renderList("poetry-list", items, (it) => openReader(it.title, it.meta, it._content));
 }
-function normalizePoems(data) {
-  const arr = Array.isArray(data) ? data : (data.poems || []);
-  return arr.map((p) => {
-    if (p.content) return { title: p.title, author: p.author, content: p.content };
-    if (Array.isArray(p.paragraphs)) {
-      return { title: p.title, author: p.author, content: p.paragraphs.join("\n") };
-    }
-    return { title: p.title || "无题", author: p.author || "", content: String(p) };
-  });
-}
-renderPoems(SAMPLE_POEMS);
+renderPoems(DEFAULT_POEMS);
 
 $("#loadRemotePoetry").addEventListener("click", async () => {
   if (!POETRY_REMOTE_URL) {
@@ -108,7 +115,7 @@ $("#loadRemotePoetry").addEventListener("click", async () => {
   setStatus("正在加载远程诗词…");
   try {
     const data = await (await fetch(POETRY_REMOTE_URL)).json();
-    const list = normalizePoems(data);
+    const list = normalizeRemote(data);
     if (list.length) renderPoems(list);
     setStatus(`已加载 ${list.length} 首`);
   } catch (e) {
@@ -143,7 +150,7 @@ $("#loadGutenberg").addEventListener("click", async () => {
   }
 });
 
-// ---------- Standard Ebooks (OPDS) ----------
+// ---------- Standard Ebooks (OPDS -> XHTML chapters) ----------
 $("#loadStandard").addEventListener("click", async () => {
   const c = $("#standard-list");
   c.innerHTML = '<div class="loading">加载中…</div>';
@@ -162,9 +169,7 @@ $("#loadStandard").addEventListener("click", async () => {
       })
       .filter(Boolean);
     renderList("standard-list", items, async (it) => {
-      setStatus("正在拉取正文…");
-      const html = await (await fetch(it._href)).text();
-      openReader(it.title, it.meta, stripHtml(html));
+      await openStandardBook(it);
     });
     setStatus(`目录 ${items.length} 条`);
   } catch (e) {
@@ -172,10 +177,73 @@ $("#loadStandard").addEventListener("click", async () => {
   }
 });
 
-function stripHtml(html) {
-  const div = document.createElement("div");
-  div.innerHTML = html;
-  div.querySelectorAll("script,style,noscript").forEach((n) => n.remove());
-  const text = (div.textContent || "").replace(/\s+/g, " ").trim();
-  return text;
+// Standard Ebooks 正文：OPDS 条目 -> /text 目录页 -> 抓取每个 /text/chapter-N XHTML -> 抽取可读正文
+// 过滤掉扉页/版权/目录等非正文章节，得到干净的全文。
+const SE_SKIP = /(titlepage|halftitle|halftitlepage|cover|colophon|imprint|uncopyright|copyright|toc|dedication|endnotes|loi|loa|contents|craftsmanship|epigraph)/i;
+
+async function openStandardBook(it) {
+  const base = it._href.replace(/\/+$/, "");
+  const textUrl = base.endsWith("/text") ? base : base + "/text";
+  currentTitle = it.title;
+  $("#readerTitle").textContent = it.title;
+  $("#readerBody").textContent = "正在解析 XHTML 正文…";
+  $("#reader").classList.remove("hidden");
+  resetPauseBtn();
+  window.scrollTo(0, 0);
+  try {
+    const html = await (await fetch(textUrl)).text();
+    const toc = new DOMParser().parseFromString(html, "text/html");
+    const baseUrl = new URL(textUrl);
+    const seen = new Set();
+    const chapterUrls = [];
+    toc.querySelectorAll("a[href]").forEach((a) => {
+      try {
+        const raw = a.getAttribute("href");
+        if (!raw) return;
+        const abs = new URL(raw, baseUrl).href;
+        const clean = abs.split("#")[0];
+        if (clean.includes("/text/") && clean !== textUrl && clean !== textUrl + "/") {
+          const seg = new URL(clean).pathname.split("/").pop();
+          if (!SE_SKIP.test(seg) && !seen.has(clean)) {
+            seen.add(clean);
+            chapterUrls.push(clean);
+          }
+        }
+      } catch (e) { /* ignore bad link */ }
+    });
+
+    let fullText = "";
+    if (chapterUrls.length) {
+      for (let i = 0; i < chapterUrls.length; i++) {
+        if (i % 5 === 0) setStatus(`正在解析正文 ${i + 1}/${chapterUrls.length}…`);
+        const chHtml = await (await fetch(chapterUrls[i])).text();
+        const chDoc = new DOMParser().parseFromString(chHtml, "text/html");
+        fullText += extractReadingText(chDoc) + "\n\n";
+      }
+    } else {
+      // 兜底：目录页本身即正文（部分书籍单页呈现）
+      fullText = extractReadingText(toc);
+    }
+    fullText = fullText.replace(/\n{3,}/g, "\n\n").trim();
+    currentText = fullText;
+    $("#readerBody").textContent = fullText || "（无正文）";
+    setStatus(`已载入全文，约 ${fullText.length} 字`);
+  } catch (e) {
+    $("#readerBody").textContent = "解析失败：" + e.message;
+    setStatus("加载失败：" + e.message);
+  }
+}
+
+// 抽取 XHTML 章节的可读正文（按文档顺序保留 p / h1-h6 / blockquote / li）
+function extractReadingText(doc) {
+  const root = doc.body || doc.documentElement;
+  if (!root) return "";
+  root.querySelectorAll("script,style,noscript,nav,header,footer,aside,figure,svg").forEach((n) => n.remove());
+  const blocks = root.querySelectorAll("p,h1,h2,h3,h4,h5,h6,blockquote,li");
+  const parts = [];
+  blocks.forEach((b) => {
+    const t = (b.textContent || "").replace(/\s+/g, " ").trim();
+    if (t) parts.push(t);
+  });
+  return parts.join("\n\n");
 }

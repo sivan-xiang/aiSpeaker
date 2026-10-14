@@ -43,4 +43,6 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
     implementation("com.google.android.material:material:1.12.0")
+    // MediaSessionCompat + MediaStyle notification for background playback.
+    implementation("androidx.media:media:1.6.0")
 }
