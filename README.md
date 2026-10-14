@@ -55,7 +55,7 @@ Android (WebView 薄壳)
   - 默认已内置「诗词游乐场」lite 数据集（75 首，`js/data/poems_classic_0.js`）。
   - 把 `POETRY_REMOTE_URL` 改成你的 lite JSON 地址（返回 `[{title, author, content}]`，或兼容 `{title, author, paragraphs:[...]}` 的 chinese-poetry 格式），然后点「从网络加载诗词」即可远程覆盖。
   - 字段已校准：`paragraphs[]` → 正文；`dynasty + author` → 作者显示。
-- **音色**：朗读前会从 `tts.list_voices()` 填充下拉框；默认 `af_heart`（美式女声）。完整列表见运行时下拉。
+- **音色**：下拉框在**页面加载时即填充**（内置 Kokoro-82M 常见音色，优先用模型静态列表）；模型首次加载完成后会用权威列表刷新，并尽量保留你已选的音色。默认 `af_heart`（美式女声）。注：Kokoro-82M 以英文为主，中文诗词朗读效果有限（见已知限制）。
 - **推理后端/精度**（`js/tts.js` 的 `initTTS`）：
   - `device: "wasm"` + `dtype: "q8"`：通用、稳定、体积小（当前默认）。
   - 若设备浏览器支持 WebGPU，可改 `device: "webgpu"` + `dtype: "fp32"` 提升音质与速度。
@@ -65,6 +65,7 @@ Android (WebView 薄壳)
 
 - **后台播放依赖前台服务**：切后台后朗读靠前台服务保活，部分厂商 ROM 的激进后台清理仍可能中断；若被回收，重新打开 App 即可。
 - **Standard Ebooks** 走「OPDS → `/text` 目录 → 逐章抓取 XHTML 抽取正文」，章节较多时首次加载会发较多请求、略慢；已过滤扉页/版权/目录等无关章节。
+- **中文朗读受限**：Kokoro-82M 以英文音色为主，**中文诗词的朗读效果有限**（会按英文音素近似发音）。英文公版书是主要适用场景；中文诗词建议作为体验项，或后续替换为中文 TTS 引擎（如本地中文 TTS ONNX 模型）。
 - **WebGPU** 在部分 Android WebView 上需安全上下文；当前默认 wasm 以保兼容。
 - 模型权重与 JS 库首次需联网下载（一次性，已缓存）。
 - 本仓库未包含 Gradle wrapper 二进制（`gradle-wrapper.jar`）；Android Studio 打开时会自动处理。

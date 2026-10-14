@@ -11,6 +11,27 @@ let paused = false;
 let queue = [];
 let resumeWaiters = [];
 
+// 内置兜底音色列表（Kokoro-82M 常见音色）。模型未加载、或静态 list_voices 不可用时使用，
+// 保证下拉框在页面加载时即可选，不依赖模型下载。
+const FALLBACK_VOICES = [
+  { id: "af_heart", name: "af_heart", gender: "female" },
+  { id: "af_bella", name: "af_bella", gender: "female" },
+  { id: "af_nicole", name: "af_nicole", gender: "female" },
+  { id: "af_sarah", name: "af_sarah", gender: "female" },
+  { id: "af_sky", name: "af_sky", gender: "female" },
+  { id: "am_michael", name: "am_michael", gender: "male" },
+  { id: "am_echo", name: "am_echo", gender: "male" },
+  { id: "am_puck", name: "am_puck", gender: "male" },
+  { id: "am_liam", name: "am_liam", gender: "male" },
+  { id: "bf_emma", name: "bf_emma", gender: "female" },
+  { id: "bf_alice", name: "bf_alice", gender: "female" },
+  { id: "bf_lily", name: "bf_lily", gender: "female" },
+  { id: "bm_george", name: "bm_george", gender: "male" },
+  { id: "bm_daniel", name: "bm_daniel", gender: "male" },
+  { id: "bm_fable", name: "bm_fable", gender: "male" },
+  { id: "bm_lewis", name: "bm_lewis", gender: "male" },
+];
+
 export async function initTTS(setStatus) {
   if (tts) return tts;
   setStatus?.("正在加载 Kokoro 模型（首次约几十 MB，之后走缓存）…");
@@ -23,7 +44,16 @@ export async function initTTS(setStatus) {
 }
 
 export function listVoices() {
-  return tts ? tts.list_voices() : [];
+  // 1) 模型已加载：用权威音色列表
+  if (tts) {
+    try { return tts.list_voices(); } catch (e) { /* fall through */ }
+  }
+  // 2) 部分版本提供静态 list_voices()，无需加载模型即可列出
+  if (typeof KokoroTTS.list_voices === "function") {
+    try { return KokoroTTS.list_voices(); } catch (e) { /* fall through */ }
+  }
+  // 3) 兜底：内置常见音色，保证下拉框永远可选
+  return FALLBACK_VOICES;
 }
 
 function ensureCtx() {

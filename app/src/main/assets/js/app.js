@@ -39,27 +39,39 @@ function resetPauseBtn() {
 }
 
 // ---------- Voices ----------
+// 页面加载即用音色列表填充下拉框（不依赖模型下载），模型加载后再用权威列表刷新。
+function populateVoices() {
+  const voices = listVoices();
+  if (!voices || !voices.length) return;
+  const prev = voiceSel.value;
+  voiceSel.innerHTML = "";
+  voices.forEach((v) => {
+    const o = document.createElement("option");
+    o.value = v.id || v.name || v;
+    const label = v.name || v.id || v;
+    const gender = v.gender
+      ? " · " + (v.gender === "female" ? "女声" : v.gender === "male" ? "男声" : v.gender)
+      : "";
+    o.textContent = label + gender;
+    voiceSel.appendChild(o);
+  });
+  // 尽量保留用户已选音色；首次默认 af_heart（美式女声）
+  if (prev && [...voiceSel.options].some((o) => o.value === prev)) {
+    voiceSel.value = prev;
+  } else if (!voiceSel.value) {
+    voiceSel.value = "af_heart";
+  }
+}
+
 async function ensureVoices() {
   if (voicesReady) return;
   await initTTS(setStatus);
-  const voices = listVoices();
-  if (voices && voices.length) {
-    voiceSel.innerHTML = "";
-    voices.forEach((v) => {
-      const o = document.createElement("option");
-      o.value = v.id || v.name || v;
-      o.textContent = `${v.name || v.id || v}${v.gender ? " · " + v.gender : ""}`;
-      voiceSel.appendChild(o);
-    });
-  } else {
-    // Fallback: Kokoro's well-known English voices.
-    ["af_heart", "af_bella", "am_michael", "bf_emma", "bm_george"].forEach((id) => {
-      const o = document.createElement("option");
-      o.value = id; o.textContent = id; voiceSel.appendChild(o);
-    });
-  }
+  populateVoices(); // 模型加载后用权威音色列表刷新下拉框
   voicesReady = true;
 }
+
+// 加载时立即填充音色（无需等待模型）
+populateVoices();
 
 // ---------- TTS controls ----------
 $("#readerSpeak").addEventListener("click", async () => {
