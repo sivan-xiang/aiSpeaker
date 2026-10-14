@@ -8,13 +8,15 @@
 Android (WebView 薄壳)
    └── assets/index.html  (网页应用)
          ├── js/tts.js      → 英文引擎：kokoro-js（onnx-community/Kokoro-82M-v1.0-ONNX，wasm 本地推理）
-         ├── js/tts_zh.js   → 中文引擎（诗词 tab 专用）：复用 Kokoro 中文音色 zf_*/zm_*
+         ├── js/tts_zh.js   → 中文引擎（诗词 tab 专用）：sherpa-onnx 离线中文 TTS（模型内置打包）
          ├── js/app.js      → 标签页 / 书架 / 阅读器 / 双引擎分发
+         ├── js/sherpa-zh-model.js → 中文模型路径配置（脚本自动生成）
+         └── tts_zh_model/  → sherpa-onnx 中文模型文件（随 APK 内置，离线）
          ├── js/data/poems.js → 诗词数据（内置示例 + 远程 URL 配置）
          └── css/style.css
 ```
 
-- **双引擎分发**：诗词 tab 走中文引擎（Kokoro 的中文音色），英文公版书（Gutenberg / Standard Ebooks）走英文引擎；两者共用同一份 Kokoro 模型，无需额外下载。要换成独立中文引擎（SpeechT5 / sherpa-onnx 等），只改 `js/tts_zh.js` 一个文件即可，`app.js` 无需改动。
+- **双引擎分发**：诗词 tab 走**中文引擎**（sherpa-onnx 离线中文 TTS），英文公版书（Gutenberg / Standard Ebooks）走英文引擎（Kokoro）。两套引擎接口完全隔离，对外暴露同一组函数（`listVoices / initTTS / speak / stopAll / pauseTTS / resumeTTS / togglePause / isPaused`），因此 `js/app.js` 无需改动。中文引擎的 wasm 运行时与模型**随 APK 内置打包**，断网也能用。
 - **推理在哪**：模型在 WebView 的浏览器引擎里跑，属于「端侧本地」。首次启动会从 CDN 拉取 `kokoro-js` 库与模型权重（约几十 MB），之后由 WebView 缓存，断网也能用。
 - **音频播放**：`tts.generate()` 返回 `Float32Array`（24kHz），经 Web Audio `AudioContext` 播放。
 
@@ -36,11 +38,36 @@ Android (WebView 薄壳)
   - `PlaybackService` 负责构造 `NotificationCompat.MediaStyle` 通知（`androidx.media:media`）。
 - 首次启动会请求「通知」权限（Android 13+）。
 
+## 中文 TTS（sherpa-onnx，离线内置）
+
+诗词 tab 使用 **sherpa-onnx** 的离线中文 TTS（基于 ONNX Runtime WASM，CPU 推理），模型文件**随 APK 内置打包**，不联网、不依赖任何云端 API。英文书仍走 Kokoro。
+
+首次使用前需把运行时与模型放进 `assets/`（在你**自己的电脑上**联网跑一次即可，之后完全离线）：
+
+```bash
+# 在 ReadAloudApp/ 目录下（需 Python 3.10+）
+py -3.10 scripts/fetch_sherpa_zh.py
+# 重新下载加 --force
+```
+
+脚本会：
+
+1. 从 npm 拉取 `@sherpa-onnx/wasm`，把 wasm 运行时（`sherpa-onnx-wasm.js` + `*.wasm`）放进 `app/src/main/assets/js/`；
+2. 从 sherpa-onnx 官方 release 下载中文模型（默认 `vits-icefall-zh-aishell3`），解压到 `app/src/main/assets/tts_zh_model/`；
+3. 按实际解压出来的文件名**自动生成** `app/src/main/assets/js/sherpa-zh-model.js`（模型路径配置）。
+
+运行后新增的产物都会进 APK 体积（模型约 30~120MB，取决于所选模型），属于一次性内置。
+
+- **换模型**：编辑 `scripts/fetch_sherpa_zh.py` 顶部的 `MODEL` / `MODEL_URL`（例如更大的 `vits-zh-hf-theresa`），重新运行脚本即可，无需改其他代码。
+- **音色**：诗词 tab 默认提供 8 个中文说话人（`zf_xiaoxiao` 等，对应 sherpa 的不同 `sid`），下拉框在页面加载时即填充，与原 Kokoro 中文音色 id 保持一致。
+- **运行时兜底**：`tts_zh.js` 优先加载本地打包的 `./sherpa-onnx-wasm.js`，若未跑脚本则自动回退到 CDN（`esm.sh`），保证「没跑脚本」时联网也能用。
+- **WebView 要求**：`MainActivity` 已开启 `allowFileAccessFromFileURLs` / `allowUniversalAccessFromFileURLs`，以便 `file://` 加载同目录 ES 模块与 `.wasm`/`.onnx`。
+
 ## 环境要求
 
 - **Android Studio** (Hedgehog 及以上) + **JDK 21**（已验证环境为 JDK 21）
 - **minSdk 24**，target/compileSdk 35
-- 首次启动需**联网**（下载库与模型）；之后可离线
+- 首次启动需**联网**（英文 Kokoro 的库与模型走 CDN，之后可离线）；**中文 sherpa-onnx 的运行时与模型**需先在本机跑一次 `scripts/fetch_sherpa_zh.py` 拉取并内置打包，之后中文朗读全程离线、不联网。
 - 测试设备：Android 8.0+（ONNX Runtime Web 的 wasm 后端不依赖 NNAPI/GPU）
 
 ## 构建与运行
@@ -67,7 +94,7 @@ Android (WebView 薄壳)
 
 - **后台播放依赖前台服务**：切后台后朗读靠前台服务保活，部分厂商 ROM 的激进后台清理仍可能中断；若被回收，重新打开 App 即可。
 - **Standard Ebooks** 走「OPDS → `/text` 目录 → 逐章抓取 XHTML 抽取正文」，章节较多时首次加载会发较多请求、略慢；已过滤扉页/版权/目录等无关章节。
-- **中文朗读已可用**：诗词 tab 已接入 Kokoro 的中文音色（`zf_xiaoxiao / zf_xiaobei / zm_yunjian` 等），可直接用中文朗读，不再是用英文音素近似。Kokoro 中文音质评级约 C~D 级，清晰可懂但腔调偏「外国人说中文」，作为体验项足够；若追求更地道的中文，可把 `js/tts_zh.js` 换成 SpeechT5 / sherpa-onnx 等独立中文引擎（接口已隔离，`app.js` 无需改动）。
+- **中文朗读已升级为 sherpa-onnx 离线引擎**：诗词 tab 现在用 sherpa-onnx（vits-icefall-zh-aishell3 等中文模型）做真正的端侧中文合成，比早期「Kokoro 中文音色近似」更自然地道；模型随 APK 内置打包，需先跑一次 `scripts/fetch_sherpa_zh.py` 拉取运行时与权重。若想换更大/更高质量的中文模型，改脚本顶部 `MODEL` 重新运行即可。
 - **WebGPU** 在部分 Android WebView 上需安全上下文；当前默认 wasm 以保兼容。
 - 模型权重与 JS 库首次需联网下载（一次性，已缓存）。
 - 本仓库未包含 Gradle wrapper 二进制（`gradle-wrapper.jar`）；Android Studio 打开时会自动处理。

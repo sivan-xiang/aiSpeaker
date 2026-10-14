@@ -40,6 +40,10 @@ class MainActivity : AppCompatActivity() {
             domStorageEnabled = true
             allowFileAccess = true
             allowContentAccess = true
+            // 允许 file:// 页面加载同目录的 ES 模块（app.js / tts.js / tts_zh.js）
+            // 以及 sherpa-onnx 的 .wasm / 中文模型的 .onnx（内置打包需要）。
+            allowFileAccessFromFileURLs = true
+            allowUniversalAccessFromFileURLs = true
             // Kokoro model + kokoro-js are fetched from a CDN on first launch.
             setMixedContentMode(android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW)
             // Let audio play without an explicit gesture in case the flag matters on some ROMs.
